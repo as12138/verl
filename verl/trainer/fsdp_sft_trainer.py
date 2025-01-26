@@ -26,6 +26,8 @@ os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 import logging
 import re
 import torch
+import torch_npu
+from torch_npu.contrib import transfer_to_npu
 import torch.distributed
 from torch import nn, optim
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, MixedPrecision, ShardingStrategy, CPUOffload
@@ -173,7 +175,6 @@ class FSDPSFTTrainer(object):
             self.model: PreTrainedModel = AutoModelForCausalLM.from_pretrained(local_model_path,
                                                                                config=config,
                                                                                torch_dtype=torch.float32,
-                                                                               attn_implementation='flash_attention_2',
                                                                                trust_remote_code=trust_remote_code)
 
             if self.config.model.get('lora_rank', 0) > 0:

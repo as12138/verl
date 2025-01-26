@@ -17,6 +17,8 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
+import torch_npu
+from torch_npu.contrib import transfer_to_npu
 from verl.utils.reward_score import gsm8k, math
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 
@@ -65,6 +67,7 @@ class RewardManager():
 
             # decode
             sequences = torch.cat((valid_prompt_ids, valid_response_ids))
+            sequences = sequences.long()
             sequences_str = self.tokenizer.decode(sequences)
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']

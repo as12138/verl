@@ -18,6 +18,7 @@ import os
 from typing import Dict, List, Optional, Tuple, Type, Union
 
 import torch
+import torch_npu
 import torch.distributed
 import torch.nn as nn
 from vllm.config import (
@@ -163,6 +164,29 @@ class Worker(Worker):
             _check_if_gpu_supports_dtype(self.model_config.dtype)
             torch.cuda.empty_cache()
             self.init_gpu_memory = torch.cuda.mem_get_info()[0]
+        elif self.device_config.device.type == "npu":
+            # torch.distributed.all_reduce does not free the input tensor until
+            # the synchronization point. This causes the memory usage to grow
+            # as the number of all_reduce calls increases. This env var disables
+            # this behavior.
+            # Related issue:
+            # https://discuss.pytorch.org/t/cuda-allocation-lifetime-for-inputs-to-distributed-all-reduce/191573
+
+            # NOTE(sgm): Modify for verl, Env vars will be set by TORCHRUN.
+            self.rank = self.rank if self.rank is not None else int(os.getenv("RANK", "-1"))
+            local_rank = int(os.getenv("LOCAL_RANK", "0"))
+            self.device = torch.device(f"npu:{local_rank}")
+            if self.rank < 0:
+                raise ValueError("Invalid or unspecified rank.")
+            torch.cuda.set_device(self.device)
+
+            # Use the world_size set by TORCHRUN
+            world_size = int(os.getenv("WORLD_SIZE", "-1"))
+            assert world_size != -1, "The world_size is set to -1, not initialized by TORCHRUN"
+            self.parallel_config.world_size = world_size
+
+            torch_npu.npu.empty_cache()
+            self.init_gpu_memory = torch_npu.npu.mem_get_info()[0]
         else:
             raise RuntimeError(f"Not support device type: {self.device_config.device}")
 
@@ -233,8 +257,9 @@ class Worker(Worker):
         return num_gpu_blocks, num_cpu_blocks
 
     def _init_cache_engine(self):
-        if self.cache_engine is None and self.gpu_cache is None:
-            super()._init_cache_engine()
+        # if self.cache_engine is None and self.gpu_cache is None:
+        #     super()._init_cache_engine()
+        pass
 
     def free_cache_engine(self):
         # ensure `enforce_eager=True`
@@ -301,7 +326,7 @@ def init_worker_distributed_environment(
     set_custom_all_reduce(not parallel_config.disable_custom_all_reduce)
 
     # NOTE(sgm) use tcp://localhost:xxxx will hang in HF setting without megatron
-    init_distributed_environment(parallel_config.world_size, rank, distributed_init_method, local_rank)
+    init_distributed_environment(parallel_config.world_size, rank, distributed_init_method, local_rank, backend="hccl")
 
     ensure_model_parallel_initialized(
         tensor_model_parallel_size=parallel_config.tensor_parallel_size,
@@ -328,6 +353,6 @@ def init_worker_distributed_environment(
     #     init_custom_ar()
 
     # A small all_reduce for warmup.
-    torch.distributed.all_reduce(torch.zeros(1).cuda())
+    torch.distributed.all_reduce(torch.zeros(1).npu())
     # if pynccl_utils.is_initialized():
     #     pynccl_utils.all_reduce(torch.zeros(1).cuda())

@@ -41,7 +41,7 @@ def gather_from_labels(data, label):
     Returns:
 
     """
-
+    label = label.long()
     output = torch.gather(data, -1, label.unsqueeze(-1)).squeeze(-1)
     return output
 
