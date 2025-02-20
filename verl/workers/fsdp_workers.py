@@ -38,7 +38,6 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
-from verl.utils.device import get_device
 
 from codetiming import Timer
 
@@ -137,7 +136,6 @@ class ActorRolloutRefWorker(Worker):
             self.config.ref.log_prob_micro_batch_size //= (self.device_mesh.shape[0] //
                                                            self.ulysses_sequence_parallel_size)
             self.config.ref.log_prob_micro_batch_size_per_gpu = self.config.ref.log_prob_micro_batch_size
-        self.device = get_device()
 
     def _build_model_optimizer(self,
                                model_path,
@@ -419,7 +417,7 @@ class ActorRolloutRefWorker(Worker):
         if self._is_offload_optimizer:
             load_fsdp_optimizer(optimizer=self.actor_optimizer, device_id=torch.npu.current_device())
 
-        data.batch = data.batch.to(self.device)
+        data.batch = data.batch.npu()
 
         log_gpu_memory_usage('Before update policy', logger=logger)
 
@@ -462,7 +460,7 @@ class ActorRolloutRefWorker(Worker):
                                      device_id=torch.npu.current_device(),
                                      load_grad=self._is_offload_grad)
 
-        prompts.batch = prompts.batch.to(self.device)
+        prompts.batch = prompts.batch.npu()
         meta_info = {
             'eos_token_id':
                 self.generation_config.eos_token_id
@@ -903,7 +901,6 @@ class RewardModelWorker(Worker):
         if self.config.micro_batch_size is not None:
             self.config.micro_batch_size //= torch.distributed.get_world_size()
             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
-        self.device = get_device()
 
     def _build_model(self, config):
         # the following line is necessary
@@ -1107,7 +1104,7 @@ class RewardModelWorker(Worker):
         if self._do_switch_chat_template:
             rm_data = self._switch_chat_template(data)
 
-        rm_data.batch = rm_data.batch.to(self.device)
+        rm_data.batch = rm_data.batch.npu()
 
         # perform forward computation
         with self.ulysses_sharding_manager:
