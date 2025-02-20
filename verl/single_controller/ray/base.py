@@ -22,6 +22,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy, Nod
 from ray.experimental.state.api import get_actor
 
 from verl.single_controller.base import WorkerGroup, ResourcePool, ClassWithInitArgs, Worker
+from verl.utils.device import is_npu_available
 
 __all__ = ['Worker']
 
@@ -68,9 +69,10 @@ class RayResourcePool(ResourcePool):
         pg_name_prefix = name if name else \
             f"{self.name_prefix}verl_group_{'_'.join([str(count) for count in self._store])}:"
         # print(f"pg_name_prefix = {pg_name_prefix}")
+        device_name = "NPU" if is_npu_available else "GPU"
         pg_scheme = [[{
             "CPU": self.max_collocate_count,
-            "NPU": 1
+            device_name: 1
         } if self.use_gpu else {
             "CPU": self.max_collocate_count
         } for _ in range(process_count)] for process_count in self._store]
@@ -160,7 +162,9 @@ class RayClassWithInitArgs(ClassWithInitArgs):
         }
         options.update(self._options)
 
-        if use_gpu:
+        if use_gpu and not is_npu_available:
+            options["num_gpus"] = num_gpus
+        if use_gpu and is_npu_available:
             options["resources"] = {"NPU": num_gpus}
 
         if len(self._additional_resource) > 1:
